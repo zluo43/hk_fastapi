@@ -92,42 +92,39 @@ async def get_s3_parquet_sample():
 @app.get("/nearest-stations/", response_model=List[Dict[str, Any]])
 async def get_nearest_stations(lat: float, lon: float, count: int = 5):
     """
-    Finds 'count' nearest start stations to the given latitude and longitude.
-    Assumes 'start_lat' and 'start_lng' columns exist in the Parquet file.
-    If 'start_geom' (WKB) exists, it could be used for more accurate spatial indexing/querying.
+    Finds 'count' nearest start stations to the given latitude and longitude using a parameterized query.
     """
     s3_parquet_path = "s3://us-west-2.opendata.source.coop/zluo43/citibike/new_schema_combined_with_geom.parquet/**/*.parquet"
     
     try:
         con = duckdb.connect(database=':memory:', read_only=False)
         
-        # Ensure httpfs and spatial extensions are available and loaded.
-        # These might need to be run only once if an error occurs saying they aren't loaded.
-        try:
-            con.execute("""INSTALL SPATIAL""")
-            con.execute("""LOAD 'spatial'""")
-        except duckdb.IOException as e:
-            print(f"Could not install/load extensions (possibly already loaded or network issue): {e}")
-        except Exception as e: # Catch any other duckdb related error during extension loading
-            print(f"An error occurred with DuckDB extensions: {e}")
-            # Decide if you want to proceed or return an error. For now, we'll try to proceed.
-            sql_query = f"""
+        # Load the spatial extension. Modern DuckDB often loads httpfs automatically.
+        con.execute("LOAD spatial;")
+        
+        # The SQL query now uses placeholders (?) for user-provided values.
+        sql_query = """
         SELECT 
             start_station_name, 
             start_lat, 
             start_lng,
             ST_Distance_Spheroid(
                 ST_Point(start_lng, start_lat), 
-                ST_Point({lon}, {lat})
-            ) AS distance_m 
-
-        FROM read_parquet('{s3_parquet_path}')
-        WHERE start_lat IS NOT NULL AND start_lng IS NOT NULL -- Ensure we have valid coordinates
-        ORDER BY distance_m
-        LIMIT {count};
-     
+                ST_Point(?, ?)
+            ) AS distance_in_degrees
+        FROM read_parquet(?)
+        WHERE start_lat IS NOT NULL AND start_lng IS NOT NULL
+        ORDER BY distance_in_degrees
+        LIMIT ?;
         """
-        result_relation = con.execute(sql_query)
+        
+        print("Executing parameterized spatial query...")
+        
+        # Execute the query, passing the parameters as a separate list.
+        # This is the safe, parameterized way to run the query.
+        params = [lon, lat, s3_parquet_path, count]
+        result_relation = con.execute(sql_query, params)
+
         column_names = [desc[0] for desc in result_relation.description]
         rows_tuples = result_relation.fetchall()
         
@@ -141,8 +138,13 @@ async def get_nearest_stations(lat: float, lon: float, count: int = 5):
         con.close()
 
         if not data:
-            return JSONResponse(status_code=404, content={"message": "No nearby stations found or data issue."})
+            return JSONResponse(status_code=404, content={"message": "No nearby stations found."})
         
         return data
+
+    except duckdb.Error as e:
+        print(f"DuckDB Error in /nearest-stations/: {e}")
+        return JSONResponse(status_code=500, content={"message": "Error processing spatial query with DuckDB.", "detail": str(e)})
     except Exception as e:
-        return JSONResponse(status_code=500, content={"message": str(e)})
+        print(f"General Error in /nearest-stations/: {e}")
+        return JSONResponse(status_code=500, content={"message": "An unexpected server error occurred.", "detail": str(e)})
