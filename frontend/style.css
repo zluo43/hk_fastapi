@@ -1,0 +1,21 @@
+body {
+    font-family: sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f4f4f4;
+}
+
+h1, p {
+    text-align: center;
+}
+
+/* This is the crucial part: give the map container a size */
+#map {
+    height: 600px; /* You can adjust this height */
+    width: 100%;
+    max-width: 1200px; /* Optional: sets a max width for very large screens */
+    margin: 20px auto; /* Centers the map container */
+    border: 1px solid #ccc;
+    border-radius: 8px; /* Adds slightly rounded corners */
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1); /* Adds a subtle shadow */
+}

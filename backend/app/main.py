@@ -13,7 +13,7 @@ app = FastAPI(title="FastAPI Backend")
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:8001"],  # React default port and server port
+    allow_origins=["*"],  # Allow all origins during development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -111,10 +111,10 @@ async def get_nearest_stations(lat: float, lon: float, count: int = 5):
             ST_Distance_Spheroid(
                 ST_Point(start_lng, start_lat), 
                 ST_Point(?, ?)
-            ) AS distance_in_degrees
+            ) AS distance_in_meters
         FROM read_parquet(?)
         WHERE start_lat IS NOT NULL AND start_lng IS NOT NULL
-        ORDER BY distance_in_degrees
+        ORDER BY distance_in_meters
         LIMIT ?;
         """
         
