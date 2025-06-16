@@ -1,0 +1,72 @@
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  background-color: #f0f2f5;
+}
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 0;
+}
+
+/* A reusable class for all our main content blocks. */
+.content-block {
+  width: 90%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  border-radius: 8px;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.app-header {
+  background-color: #282c34;
+  color: white;
+}
+
+.controls-bar {
+  background-color: #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.controls-bar button {
+  padding: 8px 16px;
+  font-size: 1rem;
+  cursor: pointer;
+  border-radius: 5px;
+  border: 1px solid #ddd;
+  background-color: #dc3545;
+  color: white;
+}
+
+/* NEW: A dedicated wrapper for the map that uses our content-block styles */
+.map-wrapper {
+  width: 90%;
+  max-width: 1200px;
+  height: 600px; /* Give the wrapper a fixed height */
+  margin: 0 auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  /* The wrapper itself has a border, so the map inside doesn't need one */
+  border: 1px solid #ddd;
+}
+
+/* The leaflet-container should just fill its parent wrapper */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px; /* Match the wrapper's border radius */
+}
