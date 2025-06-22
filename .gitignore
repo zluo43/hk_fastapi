@@ -62,6 +62,13 @@ logs/
 *.db
 *.sqlite3
 
+# Data directories and files
+**/data/
+data/
+*.parquet
+*.csv
+*.json
+
 # Node.js (for frontend)
 node_modules/
 npm-debug.log*
@@ -74,4 +81,4 @@ frontend/build/
 
 # Temporary files
 *.tmp
-*.temp 
+*.temp
