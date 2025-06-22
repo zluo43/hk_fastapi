@@ -23,6 +23,7 @@ interface Station {
   start_lat: number;
   start_lng: number;
   distance_in_meters: number; // Updated from distance_in_degrees
+  ride_count?: number; // Optional, if you want to display ride count
 }
 
 interface ClickLocation {

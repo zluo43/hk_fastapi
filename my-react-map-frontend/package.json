@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@deck.gl/mapbox": "^9.1.12",
+    "deck.gl": "^9.1.12",
     "leaflet": "^1.9.4",
     "react": "^19.0.0-rc.1",
     "react-dom": "^19.0.0-rc.1",

@@ -5,7 +5,18 @@ import duckdb
 from datetime import datetime, date
 from decimal import Decimal
 import math # Import the math module for cosine calculation
+import logging
+import os
 
+#unqiue stations schema:
+# start_station_name,
+#avg_lat as start_lat,
+# avg_lng as start_lng,
+# ride_count,
+# lat_variance,
+# lng_variance,
+# last_ride_date
+        
 # Create a new APIRouter instance for this feature
 router = APIRouter(
     prefix="/stations",
@@ -28,45 +39,43 @@ def serialize_value(value):
 # ---- Database Connection Logic ----
 con: duckdb.DuckDBPyConnection = None
 
-# @router.on_event("startup")
-# def startup_load_stations():
-#     global con
-#     print("Stations Router: Initializing DuckDB and loading data...")
-#     s3_parquet_path = "s3://us-west-2.opendata.source.coop/zluo43/citibike/new_schema_combined_with_geom.parquet/**/*.parquet"
-#     con = duckdb.connect(database=':memory:', read_only=False)
-#     try:
-#         con.execute("INSTALL spatial;")
-#         con.execute("LOAD spatial;")
-#         print("Reading from S3 and creating in-memory 'stations' table...")
-#         con.execute(f"""
-#             CREATE TABLE stations AS 
-#             SELECT * FROM read_parquet('{s3_parquet_path}',hive_partitioning=1)
-#             WHERE year=2025
-#             LIMIT 100000
-#         """)
-#         station_count = con.execute("SELECT COUNT(*) FROM stations;").fetchone()[0]
-#         print(f"Stations Router: Loaded {station_count} rows into memory.")
-#     except Exception as e:
-#         print(f"FATAL: Stations Router could not load data. Error: {e}")
-#         con = None
-
-
-
-#Try no data table creation start up
 @router.on_event("startup")
 def startup_event():
-    # --- MODIFIED STARTUP ---
-    # We now only create the connection and load the extension.
-    # We DO NOT load the data into memory.
+    
+    # Now reads from the pre-processed local file instead of S3.
     global con
     print("Stations Router: Initializing DuckDB connection...")
     con = duckdb.connect(database=':memory:', read_only=False)
+    con.execute("INSTALL spatial;")
+    con.execute("LOAD spatial;")
+    
+    # Define the path to your local data file.
+    
+    local_parquet_path = "backend/app/data/unique_stations.parquet"
+    
+    if not os.path.exists(local_parquet_path):
+        print(f"FATAL ERROR: Optimized data file not found at '{local_parquet_path}'.")
+        print("Please run the 'preprocess_data.py' script first.")
+        con = None # Set con to None so endpoints will report an error
+        return
+
     try:
-        con.execute("INSTALL spatial; LOAD spatial;")
-        print("Stations Router: Spatial extension loaded.")
+        
+        print(f"Reading from local file: '{local_parquet_path}'...")
+        
+        # Create the in-memory table from our small, local, optimized file.
+       
+        con.execute(f"CREATE TABLE stations AS SELECT * FROM read_parquet('{local_parquet_path}');")
+        
+        station_count = con.execute("SELECT COUNT(*) FROM stations;").fetchone()[0]
+        print(f"Stations Router: Successfully loaded {station_count} unique stations into memory.")
     except Exception as e:
-        print(f"FATAL: Could not load spatial extension. Error: {e}")
+        print(f"FATAL: Could not load data at startup. Error: {e}")
         con = None
+
+
+
+
 
 @router.on_event("shutdown")
 def shutdown_close_db_connection():
@@ -75,83 +84,53 @@ def shutdown_close_db_connection():
         print("Stations Router: Closing DuckDB connection.")
         con.close()
 
-# ---- Endpoints ----
 
-#Now the path becomes URL:.../stations/nearest
+
+
 @router.get("/nearest", response_model=List[Dict[str, Any]])
-async def get_nearest_stations(lat: float, lon: float, count: int = 5, year: int = 2025):
+async def get_nearest_stations(lat: float, lon: float, count: int = 5):
     if not con:
-        raise HTTPException(status_code=503, detail="Database not available.")
-    
-    # S3 path is now defined here, as it's used in every query
-    s3_parquet_path = "s3://us-west-2.opendata.source.coop/zluo43/citibike/new_schema_combined_with_geom.parquet/**/*.parquet"
+        raise HTTPException(status_code=503, detail="Database not available. Check startup logs for errors.")
     
     try:
-        # Calculate search bounding box (same as before)
-        search_radius_m = 2000
-        lat_degree_in_m = 111132
-        lng_degree_in_m = lat_degree_in_m * math.cos(math.radians(lat))
-        lat_delta = search_radius_m / lat_degree_in_m
-        lon_delta = search_radius_m / lng_degree_in_m
-        search_bbox = {
-            "xmin": lon - lon_delta, "xmax": lon + lon_delta,
-            "ymin": lat - lat_delta, "ymax": lat + lat_delta
-        }
-
-        # --- MODIFIED QUERY ---
-        # This query now reads directly from S3 on every call.
-        # It includes both the bbox filter AND the unique station name optimization.
+        print(f"DEBUG: Query params - lat: {lat}, lon: {lon}, count: {count}")
+        
         sql_query = """
-        WITH station_rides AS (
-            SELECT *
-            FROM read_parquet(?, hive_partitioning=1)
-            WHERE 
-                -- Fast Bbox Intersection filter
-                year=?
-                AND
-                start_geom_bbox.xmin <= ? AND -- search_bbox.xmax
-                start_geom_bbox.xmax >= ? AND -- search_bbox.xmin
-                start_geom_bbox.ymin <= ? AND -- search_bbox.ymax
-                start_geom_bbox.ymax >= ?     -- search_bbox.ymin
-                
-               
-
-        ),
-        unique_stations AS (
-            -- Find the first occurrence of each unique station within the candidates
-            -- to prevent calculating distance to the same station hundreds of times.
-            SELECT *
-            FROM station_rides
-            QUALIFY ROW_NUMBER() OVER(PARTITION BY start_station_name ORDER BY started_at DESC) = 1.  --arbitrary most recent ride to temporaril represent the correct location 
-        )
         SELECT 
             start_station_name, 
             start_lat, 
             start_lng,
+            ride_count,
             ST_Distance_Spheroid(
-                ST_Point(start_lng, start_lat), 
+                ST_Point(start_lng,start_lat), 
                 ST_Point(?, ?) -- click point lon, lat
             ) AS distance_in_meters
-        FROM unique_stations 
-        ORDER BY distance_in_meters ASC
+        FROM stations 
+        ORDER BY distance_in_meters 
         LIMIT ?;
         """
-        params = [
-            s3_parquet_path,
-            year,
-            search_bbox["xmax"], search_bbox["xmin"],
-            search_bbox["ymax"], search_bbox["ymin"],
-            lon, lat,
-            count
-        ]
+        params = [lon, lat, count]
+        print(f"DEBUG: About to execute query with params: {params}")
         
         result_tuples = con.execute(sql_query, params).fetchall()
+        print(f"DEBUG: Query executed successfully, got {len(result_tuples)} results")
+        print(f"DEBUG: Raw result_tuples data: {result_tuples}")
         
-        if not result_tuples:
-            return JSONResponse(status_code=404, content={"message": "No nearby stations found within the search radius."})
-            
-        data = [{"start_station_name": str(r[0]), "start_lat": float(r[1]), "start_lng": float(r[2]), "distance_in_meters": float(r[3])} for r in result_tuples]
-        return data
-    except duckdb.Error as e:
+        # Process the results and convert to proper format
+        stations = []
+        for row in result_tuples:
+            station_data = {
+                "start_station_name": serialize_value(row[0]),
+                "start_lat": serialize_value(row[1]),
+                "start_lng": serialize_value(row[2]),
+                "ride_count": serialize_value(row[3]),
+                "distance_in_meters": serialize_value(row[4])
+            }
+            stations.append(station_data)
+        
+        print(f"DEBUG: Processed {len(stations)} stations for return")
+        return stations
+        
+    except Exception as e:
+        print(f"DEBUG: Exception occurred: {type(e).__name__}: {str(e)}")
         return JSONResponse(status_code=500, content={"message": "Error during spatial query.", "detail": str(e)})
-
